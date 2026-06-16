@@ -1,0 +1,38 @@
+# Git ignore rules for aws-claude-eks-chatbot project
+
+# Python virtual environment and cache
+venv/
+.venv/
+ENV/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js dependencies and build output
+node_modules/
+dist/
+.eslintcache
+
+# Terraform files
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+*.tfvars
+*.tfvars.json
+
+# IDE settings and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Application local environment secrets
+.env
+.env.local
+.env.*.local

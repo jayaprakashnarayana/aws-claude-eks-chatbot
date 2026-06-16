@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+  namespace: aws-claude-chatbot
+  labels:
+    app: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      serviceAccountName: backend-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+      - name: backend
+        # The ECR image path will be populated by the CI/CD pipeline.
+        image: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/aws-claude-chatbot-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+        env:
+        - name: LLM_PROVIDER
+          value: "bedrock"
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: BEDROCK_MODEL_ID
+          value: "anthropic.claude-3-5-sonnet-20240620-v1:0"
+        - name: ALLOWED_ORIGINS
+          value: "*"
+        # Standard Kubernetes health checks
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5

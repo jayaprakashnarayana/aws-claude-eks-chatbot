@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: main-ingress
+  namespace: aws-claude-chatbot
+  annotations:
+    # Use the AWS Load Balancer Controller
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    
+    # Use IP target type (directly route to pods instead of EC2 instance NodePorts)
+    alb.ingress.kubernetes.io/target-type: ip
+    
+    # Clean group name to share ALBs if needed
+    alb.ingress.kubernetes.io/group.name: aws-claude-chatbot
+    
+    # Security: Enable SSL redirection if Certificate ARN is provided
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/abc-123-def
+    # alb.ingress.kubernetes.io/ssl-redirect: '443'
+    
+    # Health checks settings for the ALB target groups
+    alb.ingress.kubernetes.io/healthcheck-path: /api/health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
+    alb.ingress.kubernetes.io/success-codes: '200'
+spec:
+  rules:
+  - http:
+      paths:
+      # Route all API traffic to the backend
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+      # Route all other traffic to the frontend
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 80

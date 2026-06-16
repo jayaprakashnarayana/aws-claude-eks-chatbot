@@ -1,0 +1,140 @@
+name: Build and Deploy to Amazon EKS
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write # Required for AWS OIDC authentication
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: aws-claude-chatbot-eks
+  # Replace with your IAM Role ARN created for GitHub Actions OIDC integration
+  GHA_AWS_ROLE_ARN: arn:aws:iam::<AWS_ACCOUNT_ID>:role/github-actions-eks-deploy-role
+  BACKEND_ECR_REPO: aws-claude-chatbot-backend
+  FRONTEND_ECR_REPO: aws-claude-chatbot-frontend
+
+jobs:
+  test-and-lint:
+    name: Test and Lint backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run Backend Tests
+        run: |
+          cd backend
+          pytest
+
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    needs: test-and-lint
+    outputs:
+      image_tag: ${{ steps:set-tag.outputs.tag }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Image Tag
+        id: set-tag
+        run: |
+          echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.GHA_AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Backend Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+        run: |
+          docker build -t $ECR_REGISTRY/$BACKEND_ECR_REPO:$IMAGE_TAG -t $ECR_REGISTRY/$BACKEND_ECR_REPO:latest backend/
+          docker push $ECR_REGISTRY/$BACKEND_ECR_REPO:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$BACKEND_ECR_REPO:latest
+
+      - name: Build and Push Frontend Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+        run: |
+          docker build -t $ECR_REGISTRY/$FRONTEND_ECR_REPO:$IMAGE_TAG -t $ECR_REGISTRY/$FRONTEND_ECR_REPO:latest frontend/
+          docker push $ECR_REGISTRY/$FRONTEND_ECR_REPO:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$FRONTEND_ECR_REPO:latest
+
+  deploy-to-eks:
+    name: Deploy to Amazon EKS
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.GHA_AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Update Kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: Update Image Tags and Apply Manifests
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          # Replace placeholder tags in deployment files with newly built images
+          sed -i "s|<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/aws-claude-chatbot-backend:latest|$ECR_REGISTRY/$BACKEND_ECR_REPO:$IMAGE_TAG|g" k8s/backend-deployment.yaml
+          sed -i "s|<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/aws-claude-chatbot-frontend:latest|$ECR_REGISTRY/$FRONTEND_ECR_REPO:$IMAGE_TAG|g" k8s/frontend-deployment.yaml
+          
+          # Inject actual IAM role ARN into Service Account
+          sed -i "s|<AWS_ACCOUNT_ID>|$(aws sts get-caller-identity --query Account --output text)|g" k8s/service-account.yaml
+
+          # Apply Namespace first, then other manifests
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/service-account.yaml
+          kubectl apply -f k8s/backend-deployment.yaml
+          kubectl apply -f k8s/backend-service.yaml
+          kubectl apply -f k8s/frontend-deployment.yaml
+          kubectl apply -f k8s/frontend-service.yaml
+          kubectl apply -f k8s/ingress.yaml
+
+      - name: Verify Deployment
+        run: |
+          kubectl rollout status deployment/backend-deployment -n aws-claude-chatbot --timeout=120s
+          kubectl rollout status deployment/frontend-deployment -n aws-claude-chatbot --timeout=120s
