@@ -1,5 +1,7 @@
 # AWS Claude EKS AI Chatbot: E2E Enterprise Architecture & Deployment
 
+![Dashboard Interface Mockup](docs/images/chatbot_ui_screenshot.png)
+
 This repository contains a clean, production-grade, end-to-end working model of an AI Chatbot powered by **Claude 3.5 Sonnet**, running on **AWS EKS** (Elastic Kubernetes Service), managed via **Terraform (IaC)**, and continuously deployed using **GitHub Actions**.
 
 The system is architected for maximum security, scalability, and efficiency.
