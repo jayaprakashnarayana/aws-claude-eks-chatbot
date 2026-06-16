@@ -178,7 +178,7 @@ function App() {
           <div className="brand-section">
             <span className="brand-logo">💎</span>
             <div>
-              <h1 className="brand-title">Antigravity AI</h1>
+              <h1 className="brand-title">Intelligent Agent</h1>
               <div style={{ fontSize: '0.65rem', color: 'var(--accent-secondary)', fontWeight: 'bold' }}>AWS CLOUD PORTAL</div>
             </div>
           </div>
